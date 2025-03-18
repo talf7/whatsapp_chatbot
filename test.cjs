@@ -39,6 +39,8 @@ const client = new Client({
 // Send QR Code to UI
 client.on('qr', qr => {
     console.log("QR Code Generated");
+    console.log("\n\n🔷 Scan this QR Code by pasting it into a QR code scanner:");
+    console.log(qr); // Prints the raw QR code text
     ws.send(JSON.stringify({ type: "qr", data: qr }));
 });
 
