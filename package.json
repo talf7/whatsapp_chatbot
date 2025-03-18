@@ -10,8 +10,9 @@
     "dev": "vite",
     "build": "electron-builder",
     "preview": "vite preview",
-    "start": "electron .",
-    "package-win": "electron-packager . WhatsAppBot --platform=win32 --arch=x64 --out=dist --overwrite"
+    "start": "node bot.cjs",
+    "package-win": "electron-packager . WhatsAppBot --platform=win32 --arch=x64 --out=dist --overwrite",
+    "install": "apt-get update && apt-get install -y wget curl unzip fontconfig locales chromium"
   },
   "devDependencies": {
     "electron": "^35.0.1",
