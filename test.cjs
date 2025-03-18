@@ -1,18 +1,10 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const fs = require('fs');
 const qrcode = require('qrcode-terminal');
-const express = require("express");
 const WebSocket = require('ws');
 const ws = new WebSocket('ws://localhost:3000'); // Connect to WebSocket server
 
-let qrCode = "";
-const app = express();
 
-app.get('/qr',async (req, res) => {
-    if (!qrCode) return res.send("No QR Code yet, please wait...");
-    const qrImage = await qrcode.toDataURL(qrCode);
-    res.send(`<img src="${qrImage}" alt="Scan QR Code to Connect">`);
-})
 
 function sendLog(message) {
     if (ws.readyState === WebSocket.OPEN) {
@@ -394,9 +386,3 @@ process.on("SIGINT", async () => {
 
 // Start the bot
 client.initialize();
-
-
-
-// Start Express server to show QR code
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🌐 QR code available at http://localhost:${PORT}/qr`));
