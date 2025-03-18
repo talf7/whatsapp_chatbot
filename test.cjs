@@ -2,6 +2,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const fs = require('fs');
 const qrcode = require('qrcode-terminal');
 const WebSocket = require('ws');
+const {toDataURL} = require("qrcode-terminal/vendor/QRCode");
 const ws = new WebSocket('ws://localhost:3000'); // Connect to WebSocket server
 
 
@@ -37,13 +38,16 @@ const client = new Client({
 });
 
 // Send QR Code to UI
-client.on('qr', qr => {
-    console.log("QR Code Generated");
-    console.log("\n\n🔷 Scan this QR Code:");
-    qrcode.generate(qr, { small: true }); // Prints QR code in terminal logs
-    ws.send(JSON.stringify({ type: "qr", data: qr }));
-});
+// ✅ Print QR Code in Terminal & Generate Base64 Image Link
+client.on('qr', async (qr) => {
+    console.log("📌 Scan the QR Code below:");
+    qrcode.generate(qr, { small: true }); // ASCII QR in logs
 
+    // Generate Base64 Image QR Code
+    const qrImage = toDataURL(qr);
+    console.log("\n🔗 Open this link in your browser to view the QR Code:\n");
+    console.log(qrImage);
+});
 
 const vehicleTypes = {
     "1": "4x2",
