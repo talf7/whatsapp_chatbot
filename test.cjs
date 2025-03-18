@@ -37,16 +37,20 @@ const client = new Client({
     }
 });
 
-// Send QR Code to UI
 // ✅ Print QR Code in Terminal & Generate Base64 Image Link
 client.on('qr', async (qr) => {
     console.log("📌 Scan the QR Code below:");
-    qrcode.generate(qr, { small: true }); // ASCII QR in logs
+    qrcode.generate(qr, { small: true }); // ✅ Prints ASCII QR Code in logs
 
-    // Generate Base64 Image QR Code
-    const qrImage = toDataURL(qr);
-    console.log("\n🔗 Open this link in your browser to view the QR Code:\n");
-    console.log(qrImage);
+    // ✅ Generate Base64 Image QR Code
+    QRCode.toDataURL(qr, (err, url) => {
+        if (err) {
+            console.error("❌ Error generating QR Code:", err);
+            return;
+        }
+        console.log("\n🔗 Copy & paste this link in your browser to view the QR Code:\n");
+        console.log(url);
+    });
 });
 
 const vehicleTypes = {
