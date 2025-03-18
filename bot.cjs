@@ -1,13 +1,45 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const fs = require('fs');
 const qrcode = require('qrcode-terminal');
+const WebSocket = require('ws');
+const ws = new WebSocket('ws://localhost:3000'); // Connect to WebSocket server
+
+function sendLog(message) {
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "log", data: message }));
+    }
+}
+
+ws.on('open', () => {
+    sendLog("Connected to WebSocket server from bot.js");
+});
+
+ws.on('error', (err) => {
+    console.error("WebSocket Error:", err);
+});
+
+// Send logs to UI
+console.log = (message) => {
+    sendLog(message);
+    process.stdout.write(message + '\n'); // Keep normal logging behavior
+};
 
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' // Update if needed
+        headless: false, // Open browser for debugging
+        executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", // Ensure correct path
+        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Add these flags
     }
 });
+
+
+// Send QR Code to UI
+client.on('qr', qr => {
+    console.log("QR Code Generated");
+    ws.send(JSON.stringify({ type: "qr", data: qr }));
+});
+
 
 const vehicleTypes = {
     "1": "4x2",
@@ -33,6 +65,8 @@ const userLastMessageTime = new Map(); // Track last message times
 
 const USERS_FILE = 'users.json';
 let knownUsers = new Set();
+const TIMEOUT_THRESHOLD = 30 * 60 * 1000; // 30 minutes in milliseconds
+
 
 // Load existing users from the file
 if (fs.existsSync(USERS_FILE)) {
@@ -44,22 +78,25 @@ if (fs.existsSync(USERS_FILE)) {
     }
 }
 
+function sendFirstTimeMainMenu(chatId){
+    client.sendMessage(chatId, `תודה שפניתם לדינמומטר ישראל`)
+}
+
 // Function to send the main menu
 function sendMainMenu(chatId) {
-    client.sendMessage(chatId, `תודה שפניתם לדינמומטר ישראל, נא להקיש את המספר המתאים:
+    client.sendMessage(chatId, ` נא להקיש את המספר המתאים:
 
 ‏‎1️⃣ - בדיקה לפני קנייה
 ‏‎2️⃣ - טסט (בדיקת רישוי שנתית)
 ‏‎3️⃣ - פרונט
 ‏‎4️⃣ - אביזרים
-‏‎5️⃣ - אחר`);
+‏‎5️⃣ - פרטים על סניפינו
+‏‎6️⃣ - אחר`);
+
     userStates.set(chatId, { step: "main_menu" }); // Reset user state to main menu
 }
 
-// Generate QR Code for authentication
-client.on('qr', qr => {
-    qrcode.generate(qr, { small: true });
-});
+
 
 client.on('ready', () => {
     console.log('WhatsApp bot is ready!');
@@ -79,10 +116,29 @@ client.on('message', async message => {
     const chatId = message.from;
     const text = message.body.trim();
     const currentTime = Date.now(); // Get current timestamp
-
-
-    // Get user's current step
     let userState = userStates.get(chatId) || { step: "main_menu" };
+
+    // Delay state reset to avoid immediate duplicate menus
+    if (!knownUsers.has(chatId)) {
+        console.log("this is a new user with ID:", chatId);
+        knownUsers.add(chatId);
+        fs.writeFileSync(USERS_FILE, JSON.stringify([...knownUsers]));
+        sendFirstTimeMainMenu(chatId);
+    }
+    setTimeout(() => {}, 3000);  // 3-second delay before allowing another menu
+    if (userLastMessageTime.has(chatId) && (currentTime - userLastMessageTime.get(chatId)) > TIMEOUT_THRESHOLD) {
+        console.log("this user sent a message now after 1 hour", chatId);
+        if (userState.step !== "waiting_for_support") {
+            userState = {step: "first_timer"};
+            sendMainMenu(chatId);
+        }
+    }
+
+// Update last message time after checking
+    userLastMessageTime.set(chatId, currentTime);
+
+
+
 
     // Handle different menu selections based on user's current state
     switch (userState.step) {
@@ -101,6 +157,8 @@ client.on('message', async message => {
 1️⃣ - 📑 מה צריך להביא לטסט
 2️⃣ - 🕒 שעות פעילות לטסטים
 3️⃣ - 📲 וואטסאפ לשליחת טפסים
+4️⃣ - מידע על אישור בלמים/מיושן
+
 
 🔄 להקיש 0 לחזרה לתפריט הראשי`);
                 userStates.set(chatId, {step: "test_menu"});
@@ -114,19 +172,44 @@ client.on('message', async message => {
 
 🔄 להקיש 0 לחזרה לתפריט הראשי.`);
                 userStates.set(chatId, {step: "product_menu"});
-            } else if (text === '5') {
-                client.sendMessage(chatId, `נציג יתפנה אליכם בשעות הפעילות`);
-            } else {
+            }else if (text === '5') {
+                client.sendMessage(chatId,
+                    `📍 *כתובות הסניפים שלנו:*  
+    📌 *תל אביב* - חרוץ 2  
+    🔗 [פתח במפות Google](https://maps.google.com/?q=חרוץ+2,+תל+אביב)  
+
+    📌 *רעננה* - התעשייה 14  
+    🔗 [פתח במפות Google](https://maps.google.com/?q=התעשייה+14,+רעננה)  
+    `
+                );
+
+            } else if (text === '6') {
+                client.sendMessage(chatId, `נציג יתפנה אליכם בשעות הפעילות, אנא כתבו בפירוט את מה שאתם צריכים:`);
+                console.log("waiting for support replay",userState.step);
+                userStates.set(chatId, {step: "waiting_for_support"});
+            } else{
+                console.log("Someone sent an invalid message during the main menu.");
+
+            if (userState.step !== "just_sent_main_menu") {
                 sendMainMenu(chatId);
-            }
+                userStates.set(chatId, {step: "just_sent_main_menu"}); // Prevent duplication
+
+                // Reset back to main menu state after 3 seconds
+                setTimeout(() => {
+                    userStates.set(chatId, {step: "main_menu"});
+                }, 1000);
+
+            }            }
             break;
 
         case "pre_purchase_check_menu":
             if (text === '1') {
                 client.sendMessage(chatId, `🕒 זמני קבלה לבדיקה:
-- יום א', ב', ד', ה': 7:30-15:00
-- יום ג': 7:30-12:30
-- יום ו': 7:30-10:30
+- יום א', ב', ד', ה': 7:30-15:30
+- יום ג': 7:30-13:00
+- יום ו': 7:30-11:00
+
+לא ניתן לקבוע תור לבדיקה, הגעה היא בשעות הקבלה הרשומות.
 
 🔄 להקיש 0 לחזרה לתפריט הראשי`);
             } else if (text === '2') {
@@ -136,13 +219,12 @@ client.on('message', async message => {
 2️⃣ - סוג הנעה 4x4
 3️⃣ - מיני וואן
 4️⃣ - מסחרי קטן
-5️⃣ - מסחרי גדול
 6️⃣ - משאיות עד 15 טון
 
 🔄 להקיש 0 לחזרה לתפריט הראשי`);
                 userStates.set(chatId, {step: "vehicle_selection"});
             } else if (text === '3') {
-                client.sendMessage(chatId, `קיימת אחריות לבדיקה עצמה של 3 חודשים על המנוע ושלדה.`);
+                client.sendMessage(chatId, `הבדיקה כוללת אחריות למשך 3 חודשים על המנוע (במידה ונמצא תקין) ועל שלדת הרכב. האחריות אינה חלה על מערכות חשמל ואלקטרוניקה, מנוע חשמלי ומערכות היברידיות.`);
             } else if (text === '4') {
                 client.sendMessage(chatId, `בודקים את כל המערכות כולל מנוע, תיבת הילוכים, תאונות ושלדה.`);
             } else if (text === '0') {
@@ -157,6 +239,7 @@ client.on('message', async message => {
 - ביטוח חובה בתוקף
 - תעודה מזהה של בעל הרכב
 - ייפוי כוח בכתב יד של בעל הרכב במידה ובעל הרכב לא מגיע
+- כאשר רכבכם נמצא על הכביש במשך 15 שנים, הוא מחויב באישור בלמים. אם חלפו 19 שנים, נדרש אישור רכב מיושן במקום.
 
 🔄 להקיש 0 לחזרה לתפריט הראשי`);
             } else if (text === '2') {
@@ -164,6 +247,9 @@ client.on('message', async message => {
 - יום א', ב', ד', ה': 7:30-16:15
 - יום ג': 7:30-13:45
 - יום ו': 7:30-11:45
+
+*לא ניתן לקבוע תור לטסט, הגעה היא בשעות פעילות הרשומות.*
+
 
 🔄 להקיש 0 לחזרה לתפריט הראשי`);
             } else if (text === '3') {
@@ -173,7 +259,14 @@ client.on('message', async message => {
 - ירושלים: https://wa.me/qr/J6LDI4VOOI3JO1
 
 🔄 להקיש 0 לחזרה לתפריט הראשי`);
-            } else if (text === '0') {
+            }else if (text === '4') {
+                client.sendMessage(chatId,`כאשר רכבכם נמצא על הכביש במשך 15 שנים, הוא מחויב באישור בלמים. אם חלפו 19 שנים, נדרש אישור רכב מיושן במקום.
+במידה ורכבכם זקוק לאישור בלמים או אישור מיושן לצורך ביצוע הטסט, יש לבצע את הבדיקה במוסך מורשה. לאחר קבלת האישור המקורי, ניתן להגיע אלינו לסניף לצורך ביצוע הטסט.
+לתשומת ליבכם, תוקף האישור הוא ל-3 חודשים בלבד.
+                
+🔄 להקיש 0 לחזרה לתפריט הראשי`);
+            }
+            else if (text === '0') {
                 sendMainMenu(chatId);
             }
             break;
@@ -235,7 +328,7 @@ https://www.gov.il/he/service/bicycle-and-scooter-registration
 
  https://www.dynamometer-shop.com  
 
-3️⃣ *איסוף הלוחית מהסניף*  
+*איסוף הלוחית מהסניף*  
 לאחר ביצוע ההזמנה באתר, הלוחית תהיה מוכנה לאיסוף בסניף שבחרתם בתוך *יום עסקים אחד*.  
 האיסוף אפשרי בהתאם לשעות הפעילות הבאות:  
 
@@ -269,6 +362,19 @@ https://www.gov.il/he/service/bicycle-and-scooter-registration
 });
 
 console.log("Loaded WhatsApp module...");
+
+// Handle WhatsApp Web disconnection
+client.on('disconnected', (reason) => {
+    console.log(`⚠️ WhatsApp bot disconnected: ${reason}`);
+    console.log('🔄 Restarting the bot...');
+
+    // Instead of exiting, reinitialize the bot
+    setTimeout(() => {
+        client.initialize();
+        console.log("♻️ Bot reconnected successfully!");
+    }, 5000); // Wait 5 seconds before reconnecting
+});
+
 
 process.on("SIGINT", async () => {
     console.log("(SIGINT) Shutting down...");

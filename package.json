@@ -2,20 +2,58 @@
   "name": "whatsapp-bot",
   "private": true,
   "version": "0.0.0",
-  "type": "module",
+  "main": "src/main.cjs",
+  "bin": {
+    "whatsapp-bot": "./bot.cjs"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "build": "electron-builder",
+    "preview": "vite preview",
+    "start": "electron .",
+    "package-win": "electron-packager . WhatsAppBot --platform=win32 --arch=x64 --out=dist --overwrite"
   },
   "devDependencies": {
+    "electron": "^35.0.1",
     "prettier": "^3.3.1",
     "vite": "^6.2.0"
   },
   "dependencies": {
-    "puppeteer": "^24.3.0",
+    "puppeteer": "^24.4.0",
     "puppeteer-core": "^24.3.0",
     "qrcode-terminal": "^0.12.0",
     "whatsapp-web.js": "^1.26.0"
+  },
+  "build": {
+    "appId": "com.yourapp.whatsappbot",
+    "productName": "WhatsApp Bot",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/.cache/**",
+      {
+        "from": "bot.cjs",
+        "to": "app/bot.cjs"
+      },
+      {
+        "from": "node_modules",
+        "to": "node_modules"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "bot.cjs",
+        "to": "bot.cjs"
+      },
+      {
+        "from": "node_modules",
+        "to": "node_modules"
+      }
+    ],
+    "win": {
+      "target": "nsis"
+    }
   }
 }

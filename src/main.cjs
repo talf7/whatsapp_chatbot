@@ -1,128 +1,205 @@
-console.log("Starting WhatsApp bot...");
+const { app, BrowserWindow, ipcMain } = require('electron');
+const { exec } = require('child_process');
+const WebSocket = require('ws');
+const path = require('path');
+const fs = require('fs');
 
-const { Client, LocalAuth } = require('whatsapp-web.js');
-console.log("Loaded WhatsApp module...");
-const qrcode = require('qrcode-terminal');
-console.log("Loaded QR code module...");
+let mainWindow;
+let botProcess = null;
+let wsServer;
+let checkTabInterval;
+let isBotRunning = false; // ✅ CHANGE: Added flag to track bot status
 
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: {
-    executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--disable-gpu',
-      '--single-process',
-      '--no-zygote'
-    ]
-  }
+
+// ✅ Enable app launch on startup
+app.setLoginItemSettings({
+  openAtLogin: true, // Automatically start on login
+  path: process.execPath, // Use the built .exe file path
 });
 
-// Define working hours
-const workingHours = {
-  0: null, // Sunday (closed)
-  1: { start: "07:30", end: "16:15" }, // Monday
-  2: { start: "07:30", end: "13:45" }, // Tuesday
-  3: { start: "07:30", end: "16:15" }, // Wednesday
-  4: { start: "07:30", end: "16:15" }, // Thursday
-  5: { start: "07:30", end: "11:45" }, // Friday
-  6: null // Saturday (closed)
-};
 
-// Store user states
-const userStates = new Map();
+app.whenReady().then(() => {
+  const { exec } = require('child_process');
 
-// Function to check if it's within working hours
-function isWithinWorkingHours() {
-  const now = new Date();
-  const day = now.getDay();
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
-
-  const todayHours = workingHours[day];
-  if (!todayHours) return false;
-
-  const [startH, startM] = todayHours.start.split(":").map(Number);
-  const [endH, endM] = todayHours.end.split(":").map(Number);
-
-  const nowMinutes = hours * 60 + minutes;
-  const startMinutes = startH * 60 + startM;
-  const endMinutes = endH * 60 + endM;
-
-  return nowMinutes >= startMinutes && nowMinutes <= endMinutes;
-}
-
-// Function to send the main menu
-function sendMainMenu(chatId) {
-  client.sendMessage(chatId, `תודה שפניתם לדינמומטר ישראל, נא להקיש את המספר המתאים:
-
-‏‎1️⃣ - בדיקה לפני קנייה
-‏‎2️⃣ - טסט (בדיקת רישוי שנתית)
-‏‎3️⃣ - פרונט
-‏‎4️⃣ - אחר`);
-  userStates.delete(chatId);
-}
-
-// Generate QR Code for authentication
-client.on('qr', qr => {
-  qrcode.generate(qr, { small: true });
-});
-
-client.on('ready', () => {
-  console.log('✅ WhatsApp bot is ready!');
-});
-
-// Handle incoming messages
-client.on('message', async message => {
-  const chatId = message.from;
-  const text = message.body.trim();
-
-  // Return to main menu if "0" is pressed
-  if (text === '0') {
-    sendMainMenu(chatId);
-    return;
-  }
-
-  // Handle 'אחר' (option 4 in main menu)
-  if (text === '4') {
-    if (isWithinWorkingHours()) {
-      client.sendMessage(chatId, `✅ *אנחנו זמינים כעת!*
-נציג מטעמנו ייצור איתך קשר בהקדם.`);
+// ✅ Add app to Windows startup registry
+  exec(`reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v "WhatsAppBot" /t REG_SZ /d "${process.execPath}" /f`, (err) => {
+    if (err) {
+      console.error("❌ Error adding to startup:", err);
     } else {
-      client.sendMessage(chatId, `🕒 *שעות פעילות:*
-- יום א', ב', ד', ה': 7:30-16:15
-- יום ג': 7:30-13:45
-- יום ו': 7:30-11:45
-🚫 שבת - סגור
-⏳ ניתן לנסות שוב בשעות הפעילות שלנו.`);
+      console.log("✅ App added to Windows startup.");
     }
-    return;
-  }
+  });
+  const fs = require('fs');
+  const os = require('os');
+  const startupFolder = path.join(os.homedir(), 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
+  const shortcutPath = path.join(startupFolder, 'WhatsAppBot.lnk');
 
-  // Main Menu Options
-  if (text === '1') {
-    client.sendMessage(chatId, `🚗 נא לבחור אפשרות:
-‏‎1️⃣ - זמני קבלה לבדיקה
-‏‎2️⃣ - מחיר הבדיקה
-‏‎3️⃣ - אחריות לבדיקה
-‏‎4️⃣ - מה הבדיקה כוללת`);
-    userStates.set(chatId, "pre_purchase_check_menu");
-  } else if (text === '2') {
-    client.sendMessage(chatId, `📌 בחר אפשרות:
-1️⃣ - 📑 מה צריך להביא לטסט
-2️⃣ - 🕒 שעות פעילות לטסטים
-3️⃣ - 📲 וואטסאפ לשליחת טפסים עבור כל סניף`);
-    userStates.set(chatId, "test_menu");
-  } else if (text === '3') {
-    client.sendMessage(chatId, `📞 לקביעת פרונט יש להתקשר לארקדי - 0522787076`);
-  } else {
-    sendMainMenu(chatId);
-  }
+  fs.writeFileSync(shortcutPath, `[InternetShortcut]
+URL=file://${process.execPath}`);
+  console.log("✅ Shortcut created in Startup folder.");
+
+  mainWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: true
+    }
+  });
+
+  mainWindow.loadFile('index.html');
+
+  // Start WebSocket server for logs
+  wsServer = new WebSocket.Server({ port: 3000 });
+
+  wsServer.on('connection', ws => {
+    console.log('Client connected to WebSocket');
+
+    ws.on('message', (message) => {
+      const msg = JSON.parse(message);
+      if (msg.type === "start-bot") {
+        startBot();
+      } else if (msg.type === "stop-bot") {
+        stopBot();
+      }
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      stopBot();
+      app.quit();
+    }
+  });
 });
 
-// Start the bot
-client.initialize();
+// Function to get correct bot.cjs path
+function getBotPath() {
+  let botPath;
+
+  if (fs.existsSync(path.join(__dirname, '../bot.cjs'))) {
+    botPath = path.join(__dirname, '../bot.cjs'); // Development mode
+  } else if (fs.existsSync(path.join(process.resourcesPath, 'app/bot.cjs'))) {
+    botPath = path.join(process.resourcesPath, 'app/bot.cjs'); // Inside built .exe
+  } else if (fs.existsSync(path.join(process.resourcesPath, 'bot.cjs'))) {
+    botPath = path.join(process.resourcesPath, 'bot.cjs'); // Alternate path
+  } else {
+    console.error("❌ ERROR: bot.cjs not found!");
+    sendToUI({ type: "log", data: "Error: bot.cjs not found! Make sure it's in the correct location." });
+    return null;
+  }
+
+  console.log(`✅ Bot Path: ${botPath}`);
+  return botPath;
+}
+
+// ✅ CHANGE: Function to check if WhatsApp Web tab is open
+function checkIfTabIsOpen() {
+  exec('tasklist', (err, stdout, stderr) => {
+    if (err || stderr) {
+      console.error(`❌ Error checking tasks: ${err || stderr}`);
+      return;
+    }
+
+    const isChromeRunning = stdout.includes("chrome.exe");
+
+    // ✅ CHANGE: If WhatsApp Web is closed while bot is running, stop it
+    if (!isChromeRunning && isBotRunning) {
+      console.log("❌ WhatsApp Web tab closed! Stopping bot...");
+      sendToUI({ type: "log", data: "❌ WhatsApp Web tab closed! Stopping bot..." });
+      stopBot();
+    }
+  });
+}
+
+
+// Function to start the bot
+function startBot() {
+  if (isBotRunning) {
+    console.log("⚠️ Bot is already running!");
+    sendToUI({ type: "log", data: "⚠️ Bot is already running!" });
+    return; // Prevent multiple bot instances
+  }
+
+  const botPath = getBotPath();
+  if (!botPath) return;
+
+  // Set NODE_PATH so it finds modules
+  const nodePath = process.resourcesPath
+      ? path.join(process.resourcesPath, 'node_modules')
+      : path.join(__dirname, '../node_modules');
+
+  botProcess = exec(`set NODE_PATH="${nodePath}" && node "${botPath}"`, { shell: true });
+
+  botProcess.stdout.on('data', (data) => {
+    console.log(`[BOT]: ${data}`);
+    sendToUI({ type: "log", data });
+  });
+
+  botProcess.stderr.on('data', (data) => {
+    console.error(`[ERROR]: ${data}`);
+    sendToUI({ type: "log", data: `Error: ${data}` });
+  });
+
+  botProcess.on('close', (code) => {
+    console.log(`❌ Bot process exited with code ${code}`);
+    sendToUI({ type: "log", data: `Bot stopped with exit code ${code}` });
+    botProcess = null; // Reset the botProcess variable when it stops
+    isBotRunning = false;
+    clearInterval(checkTabInterval); // Stop checking WhatsApp tab when bot stops
+  });
+
+  console.log("✅ Bot started successfully!");
+  sendToUI({ type: "log", data: "✅ Bot started successfully!" });
+  isBotRunning = true;
+  sendToUI({ type: "status", data: "running" }); // ✅ Notify UI
+
+
+  // Check if the WhatsApp Web tab is still open every 5 seconds
+  checkTabInterval = setInterval(checkIfTabIsOpen, 3000);
+}
+
+
+// Function to stop the bot and close WhatsApp Web tab
+function stopBot() {
+  if (!isBotRunning) {
+    console.log("⚠️ No bot is currently running.");
+    sendToUI({ type: "log", data: "⚠️ No bot is currently running." });
+    return;
+  }
+  console.log("🛑 Stopping bot...");
+  botProcess.kill();
+  botProcess = null;
+  isBotRunning = false;
+  clearInterval(checkTabInterval); // Stop checking WhatsApp Web tab
+
+  // Close WhatsApp Web tab
+  exec('taskkill /IM chrome.exe /F', (err, stdout, stderr) => {
+    if (err || stderr) {
+      console.error(`❌ Error closing WhatsApp Web: ${err || stderr}`);
+      sendToUI({ type: "log", data: `❌ Error closing WhatsApp Web: ${err || stderr}` });
+    } else {
+      console.log("✅ WhatsApp Web tab closed successfully.");
+      sendToUI({ type: "log", data: "✅ WhatsApp Web tab closed successfully." });
+    }
+  });
+
+  sendToUI({ type: "log", data: "🛑 Bot stopped successfully!" });
+}
+
+// Send messages to UI via WebSocket
+function sendToUI(message) {
+  wsServer.clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(message));
+    }
+  });
+}
+
+// Listen for start/stop commands from UI
+ipcMain.on('start-bot', () => {
+  startBot();
+});
+
+ipcMain.on('stop-bot', () => {
+  stopBot();
+});
