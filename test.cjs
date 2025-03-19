@@ -32,9 +32,17 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         executablePath: process.env.CHROME_PATH,
-        headless: true,
+        headless: false,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     }
+});
+
+
+
+// Send QR Code to UI
+client.on('qr', qr => {
+    console.log("QR Code Generated");
+    ws.send(JSON.stringify({ type: "qr", data: qr }));
 });
 
 // ✅ Print QR Code in Terminal & Generate Base64 Image Link
