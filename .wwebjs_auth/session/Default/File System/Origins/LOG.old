@@ -1,2 +1,3 @@
-2025/03/19-18:53:01.654 271c Creating DB C:\whatsapp-bot\.wwebjs_auth\session\Default\File System\Origins since it was missing.
-2025/03/19-18:53:01.656 271c Reusing MANIFEST C:\whatsapp-bot\.wwebjs_auth\session\Default\File System\Origins/MANIFEST-000001
+2025/03/19-19:19:35.150 5684 Reusing MANIFEST C:\whatsapp-bot\.wwebjs_auth\session\Default\File System\Origins/MANIFEST-000001
+2025/03/19-19:19:35.150 5684 Recovering log #3
+2025/03/19-19:19:35.150 5684 Reusing old log C:\whatsapp-bot\.wwebjs_auth\session\Default\File System\Origins/000003.log 
